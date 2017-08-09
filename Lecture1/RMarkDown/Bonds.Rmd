@@ -1,0 +1,165 @@
+---
+title: "SARIVA Inc. new bond pricing"
+author : Loïc BRIN
+bibliography: bibliography.bib
+output:
+  html_document:
+    code_folding: show
+    highlight: pygments #("tango", "pygments", "kate", "zenburn", "textmate")
+    self_contained: true
+    theme: cosmo #("cerulean", "journal", "flatly", "readable", "spacelab", "united", and "cosmo")
+    toc: yes
+    code_download: true
+    toc_float: true
+---
+SARIVA Inc. is a (fictitious) mining company. It concluded a coming bond origination with Morgan Sachs to finance the exploration of a new site in the North of Scotland. 
+
+
+![Image of SARIVA Inc. first mining site in Australia.](SARIVA.png)
+
+
+According to the bankers, the project could be very profitable but is quite risky, especially if within one year, after SARIVA Inc. made big investments in the new site, they discover that the site is finally not exploitable.
+
+In order to reinsure the investors, the bankers originated a particular bond with the following characteristics:
+
+* the nominal of the bond is 200 MEUR;
+* the maturity is 4 years (in 2022);
+* 30 % of the nominal will be reimbursed next year (in 2019);
+* the coupon rate is 5 %.
+
+The bankers now have to price these bonds. To do so, they have several information at their disposal:
+
++ the characteristics of several SARIVA Inc. bonds treated on the market (available [here](http://defaultrisk.free.fr/SARIVA_Bonds.csv));
++ the risk-free zero-coupon yield curve (available [here](http://defaultrisk.free.fr/RF_ZC_YC.csv)).
+```{r setup, include=FALSE}
+library(scales) # to express values in percents
+knitr::opts_chunk$set(echo = TRUE)
+library(pander)
+panderOptions("digits", 2)
+library(googleVis)
+op <- options(gvis.plot.tag='chart')
+today<-2018
+```
+# Risk Free Zero-Coupon Yield Curve
+The Risk Free Zero-Coupon Yield Curve (`RF_ZC_YC`) was uploaded from Reuberg, the financial data provider. It is based on the EURIBOR rates for less than one year maturities and the swap against EURIBOR prices for the others using @VasicekAndFong technique, detailed in @Priaulet .
+```{r RF_ZC_YC, message=FALSE, warning=FALSE, fig.align='center'}
+RF_ZC_YC<-read.csv2("RF_ZC_YC.csv", header=TRUE)
+pander(RF_ZC_YC)
+```
+```{r RF_ZC_YC_Plot, results='asis', tidy=FALSE,fig.align='center'}
+RF_ZC_YC_Plot<-gvisLineChart(RF_ZC_YC,options=list(title="Risk-Free Zero-Coupon Yield-Curve", tooltip.trigger='selection', height=300, vAxis.minValue=0,explorer="{actions: ['dragToPan', 'rightClickToReset']}",curveType="function",hAxis="{title:'Maturity (in years)'}", vAxis="{format:'#.#%'}",vAxes="[{title:'Yields'}]"))
+plot(RF_ZC_YC_Plot)
+```
+
+# Firm debt
+## List of the SARIVA Bonds
+SARIVA Inc. originated several bonds during the last decades. They are listed hereafter with their coupon rates, nominals, maturities and market prices as of today (January 2018).
+
+```{r SARIVA_Bonds, message=FALSE, warning=FALSE}
+SARIVA_Bonds<-read.csv2("SARIVA_Bonds.csv", header = TRUE, sep="\t")
+pander(SARIVA_Bonds)
+```
+## Payment Schedule
+We can easily compute the expected cash flows expected from these bonds.
+```{r SARIVA_PaymentSchedule_RealAndNot, message=FALSE, warning=FALSE}
+SARIVA_PaymentSchedule<-matrix(0, nrow=dim(SARIVA_Bonds)[1], ncol=max(SARIVA_Bonds$Maturity-today))
+rownames(SARIVA_PaymentSchedule)=SARIVA_Bonds$Bonds
+colnames(SARIVA_PaymentSchedule)=SARIVA_Bonds$Maturity
+
+
+for (i in 1:dim(SARIVA_Bonds)[1])
+{
+  SARIVA_PaymentSchedule[i,SARIVA_Bonds$Maturity[i]-today]<-SARIVA_Bonds$Nominal[i]
+  SARIVA_PaymentSchedule[i,1:(SARIVA_Bonds$Maturity[i]-today)]<-SARIVA_PaymentSchedule[i,1:(SARIVA_Bonds$Maturity[i]-today)]+SARIVA_Bonds$Nominal[i]*SARIVA_Bonds$CouponRate[i]
+  pander(SARIVA_PaymentSchedule)
+}
+
+```
+The payment schedule of SARIVA Inc. is thus the following (without taking into account the new bond to be originated).
+```{r SARIVA_PaymentSchedule_Plot, results='asis', tidy=FALSE}
+SARIVA_PaymentSchedule_Total<-apply(-SARIVA_PaymentSchedule, 2, sum)
+SARIVA_PaymentSchedule_Total<-data.frame(cbind(SARIVA_Bonds$Maturity,SARIVA_PaymentSchedule_Total))
+SARIVA_PaymentSchedule_Plot<-gvisColumnChart(SARIVA_PaymentSchedule_Total,options=list(title="Debt Payment Schedule of SARIVA Inc.", hAxis="{format:'####'}", hAxis="{title:'Years'}", vAxis="{format:'#.# MEUR'}",vAxes="[{title:'Cash Flows (in MEUR)'}]"))
+plot(SARIVA_PaymentSchedule_Plot)
+```
+# SARIVA Zero-Coupon Yield Curve
+From these bonds, we want to deduce the SARIVA Inc. Zero-Coupon Yield Curve using the *bootstrapping method* introduced in [Lecture 1_1 (slide 19)](http://defaultrisk.free.fr/PDF/Lesson1_1.pdf#page=19) and then deduce the SARIVA Inc. Zero-Coupon Yield Curve.
+
+##SARIVA Zero-Coupon Bond Prices
+
+We recall from Lesson1_2 that:
+$$\mathsf{\text{Bond Prices}}=\mathsf{\text{Payment Schedule}} \cdot \mathsf{\text{Zero-Coupon Bond Prices}}$$
+And thus:
+$$\mathsf{\text{Zero-Coupon Bond Prices}}=\mathsf{\text{Payment Schedule}}^{-1}\cdot\mathsf{\text{Bond Prices}}$$
+We now apply this numerically to get the Zero-Coupon bonds prices:
+```{r SARIVA_ZC_BP}
+SARIVA_ZC_BP<-solve(SARIVA_PaymentSchedule)%*%SARIVA_Bonds$Price
+colnames(SARIVA_ZC_BP)<-c("Price")
+pander(SARIVA_ZC_BP)
+```
+The prices are expressed for Zero-Coupon bonds with face-value of 1 EUR.
+
+##SARIVA Inc. Zero-Coupon Yield Curve
+
+We recall the formula that links Zero-Coupon Bond prices to the Zero-Coupon Yield Curve, introduced in  [Lecture 1_2 (slide 18)](http://defaultrisk.free.fr/PDF/Lesson1_1.pdf#page=18):
+$$ \mathsf{B(t,T)=e^{-r(t,T)(T-t)}}$$
+and thus:
+$$ \mathsf{r(t,T)=-\frac{1}{T-t}\log(B(t,T))}$$
+We apply this result numerically to compute SARIVA Inc. Zero-Coupon Yield Curve:
+```{r SARIVA_ZC_YC}
+SARIVA_ZC_YC<-(-(1/(SARIVA_Bonds$Maturity-today))*log(SARIVA_ZC_BP))
+colnames(SARIVA_ZC_YC)<-c("Yield")
+pander(SARIVA_ZC_YC)
+```
+##SARIVA Zero-Coupon Rates - Linear Interpolation
+We use linear interpolation to deduce the Risk-Free Zero-Coupon Yield Curve and the SAVIRA Inc. one. 
+```{r Interp_SARIVA_ZC_YC}
+Interp_RF_ZC_YC<-approx(RF_ZC_YC$Year,RF_ZC_YC$Yield)
+Interp_SARIVA_ZC_YC<-approx(rownames(RF_ZC_YC),SARIVA_ZC_YC)
+SARIVA_Spreads<-data.frame(cbind(Interp_RF_ZC_YC$x,Interp_SARIVA_ZC_YC$y-Interp_RF_ZC_YC$y))
+colnames(SARIVA_Spreads)<-c("Maturity", "Spread")
+```
+The difference between the two is called the SAVIRA Inc. **spread** that we plot here:
+```{r SARIVA_Spreads_Plot, results='asis', tidy=FALSE}
+SARIVA_Spreads_Plot<-gvisLineChart(SARIVA_Spreads,options=list(title="SARIVA Inc. spreads", tooltip.trigger='selection', height=300, vAxis.minValue=0,explorer="{actions: ['dragToPan', 'rightClickToReset']}",curveType="function",hAxis="{title:'Maturity (in years)'}", vAxis="{format:'#.#%'}",vAxes="[{title:'Spreads'}]"))
+plot(SARIVA_Spreads_Plot)
+```
+# SARIVA's Cumulative Probability of Default
+
+Even if it is not a necessity for the purpose of the exercice, we compute hereafter the Cumulative Probability of Default (Cum. PD) of SAVIRA Inc. based on market prices of its bonds.
+
+We recall the formula deduced from the no-arbitrage principle that states that:
+$$\mathsf{\mathbb{Q}\left(\tau >T \mid \tau>t\right) =\frac{\bar{B}^A(t,T)}{B(t,T)}}$$
+And thus:
+$$\mathsf{\mathbb{Q}\left(\tau>T\mid \tau>t\right) =e^{-s^A(T-t)}}$$
+where $\mathsf{S^A=\bar{B}^A(t,T)-B(t,T)}$ is the **spread**.
+```{r SARIVA_CumulativeProbabilityOfDefault_Plot, results='asis', tidy=FALSE}
+SARIVA_CumulativeProbabilityOfDefault<-data.frame(cbind(SARIVA_Spreads[,1],1-exp(-SARIVA_Spreads[,2]*SARIVA_Spreads[,1])))
+colnames(SARIVA_CumulativeProbabilityOfDefault)<-c("Maturity","Cumulative PD")
+SARIVA_CumulativeProbabilityOfDefault_Plot<-gvisLineChart(SARIVA_CumulativeProbabilityOfDefault,options=list(title="SARIVA Inc. Cumulative Probability of Default", tooltip.trigger='selection', height=300, vAxis.minValue=0,explorer="{actions: ['dragToPan', 'rightClickToReset']}",curveType="function",hAxis="{title:'Maturity (in years)'}", vAxis="{format:'#.#%'}",vAxes="[{title:'Cumulative Probability of Default'}]"))
+plot(SARIVA_CumulativeProbabilityOfDefault_Plot)
+```
+In the end, we can see that the implied probability of default, on a 4-year horizon, is of 14.5 % on the market and that this cumulative probability is increasing quickly during the first two years and then stay stable (it might because of some other risky projects that SARIVA Inc. is conducting on the short term). 
+
+# SARIVA's new bond price
+
+We recall that SARIVA Inc. new debt has the following reimbursement structure.
+```{r SARIVA_NewBond_CashFlows, results='asis', tidy=FALSE}
+SARIVA_NewBond_CashFlows<-data.frame(cbind(SARIVA_Bonds$Maturity,c(10, 70, 7, 147)))
+colnames(SARIVA_NewBond_CashFlows)<-c("Maturity","Cash Flows")
+SARIVA_NewBond_CashFlows_Plot<-gvisColumnChart(SARIVA_NewBond_CashFlows,options=list(title="New Bond Payment Schedule of SARIVA Inc.", hAxis="{format:'####'}", hAxis="{title:'Years'}", vAxis="{format:'#.# MEUR'}",vAxes="[{title:'Cash Flows (in MEUR)'}]"))
+plot(SARIVA_NewBond_CashFlows_Plot)
+```
+To compute the price of the new bond, we sum all the cash flows discounted with the SAVIRA Inc. Zero-Coupon Yield Curve that we estimated earlier.
+```{r SARIVA_NewBond_Price, results='asis', tidy=FALSE}
+SARIVA_NewBond_Price<-sum(SARIVA_NewBond_CashFlows[,2]*exp(-SARIVA_ZC_YC*(SARIVA_NewBond_CashFlows[,1])))
+```
+
+The price of the originated debt is thus 195 MEUR, that is, for a face-value of 100 EUR: 97.7 EUR.
+
+```{r resetOptions, echo=FALSE}
+## Set options back to original options
+options(op)
+```
+
+# References
